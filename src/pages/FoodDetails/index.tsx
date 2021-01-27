@@ -5,7 +5,7 @@ import React, {
   useMemo,
   useLayoutEffect,
 } from 'react';
-import { Image } from 'react-native';
+import { Image, Modal } from 'react-native';
 
 import Icon from 'react-native-vector-icons/Feather';
 import MaterialIcon from 'react-native-vector-icons/MaterialIcons';
@@ -37,6 +37,8 @@ import {
   FinishOrderButton,
   ButtonText,
   IconContainer,
+  ConfirmationOrder,
+  ConfirmationOrderText,
 } from './styles';
 
 interface Params {
@@ -65,6 +67,7 @@ const FoodDetails: React.FC = () => {
   const [extras, setExtras] = useState<Extra[]>([]);
   const [isFavorite, setIsFavorite] = useState(false);
   const [foodQuantity, setFoodQuantity] = useState(1);
+  const [orderConfirm, setOrderConfirm] = useState(false);
 
   const navigation = useNavigation();
   const route = useRoute();
@@ -73,38 +76,96 @@ const FoodDetails: React.FC = () => {
 
   useEffect(() => {
     async function loadFood(): Promise<void> {
-      // Load a specific food with extras based on routeParams id
+      const response = await api.get(`/foods/${routeParams.id}`);
+
+      setFood({
+        ...response.data,
+        formattedPrice: formatValue(response.data.price),
+      });
+
+      setExtras(
+        response.data.extras.map((extra: Omit<Extra, 'quantity'>) => ({
+          ...extra,
+          quantity: 0,
+        })),
+      );
     }
 
     loadFood();
   }, [routeParams]);
 
+  useEffect(() => {
+    async function verifyFavorite(): Promise<void> {
+      const response = await api.get('/favorites');
+
+      setIsFavorite(
+        !!response.data.find(
+          (favorite: Food) => favorite.id === routeParams.id,
+        ),
+      );
+    }
+
+    verifyFavorite();
+  }, [routeParams.id]);
+
   function handleIncrementExtra(id: number): void {
-    // Increment extra quantity
+    setExtras(
+      extras.map(extra =>
+        extra.id === id ? { ...extra, quantity: extra.quantity + 1 } : extra,
+      ),
+    );
   }
 
   function handleDecrementExtra(id: number): void {
-    // Decrement extra quantity
+    const findExtra = extras.find(extra => extra.id === id);
+
+    if (!findExtra) return;
+    if (findExtra.quantity === 0) return;
+
+    setExtras(
+      extras.map(extra =>
+        extra.id === id ? { ...extra, quantity: extra.quantity - 1 } : extra,
+      ),
+    );
   }
 
   function handleIncrementFood(): void {
-    // Increment food quantity
+    setFoodQuantity(foodQuantity + 1);
   }
 
   function handleDecrementFood(): void {
-    // Decrement food quantity
+    if (foodQuantity === 1) return;
+
+    setFoodQuantity(foodQuantity - 1);
   }
 
   const toggleFavorite = useCallback(() => {
-    // Toggle if food is favorite or not
+    if (isFavorite) {
+      api.delete(`/favorites/${food.id}`);
+    } else {
+      api.post('/favorites', food);
+    }
+
+    setIsFavorite(!isFavorite);
   }, [isFavorite, food]);
 
   const cartTotal = useMemo(() => {
-    // Calculate cartTotal
+    const extraTotal = extras.reduce((accumulator, extra) => {
+      return accumulator + extra.quantity * extra.value;
+    }, 0);
+
+    const foodTotal = Number(food.price);
+
+    return formatValue((extraTotal + foodTotal) * foodQuantity);
   }, [extras, food, foodQuantity]);
 
   async function handleFinishOrder(): Promise<void> {
-    // Finish the order and save on the API
+    await api.post('orders', { ...food, extras });
+    setOrderConfirm(true);
+
+    setTimeout(() => {
+      navigation.navigate('DashboardStack');
+    }, 2000);
   }
 
   // Calculate the correct icon name
@@ -130,7 +191,6 @@ const FoodDetails: React.FC = () => {
   return (
     <Container>
       <Header />
-
       <ScrollContainer>
         <FoodsContainer>
           <Food>
@@ -209,6 +269,19 @@ const FoodDetails: React.FC = () => {
           </FinishOrderButton>
         </TotalContainer>
       </ScrollContainer>
+
+      <Modal
+        animationType="fade"
+        transparent
+        visible={orderConfirm}
+        statusBarTranslucent
+        presentationStyle="overFullScreen"
+      >
+        <ConfirmationOrder>
+          <Icon name="thumbs-up" size={30} color="#39B100" />
+          <ConfirmationOrderText>Pedido Confirmado!</ConfirmationOrderText>
+        </ConfirmationOrder>
+      </Modal>
     </Container>
   );
 };
